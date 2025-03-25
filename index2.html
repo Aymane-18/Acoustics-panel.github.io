@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Acoustic Panel Calculator</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+    <div class="container">
+        <h1>Acoustic Panel Calculator</h1>
+        <form id="acoustic-form">
+            <div>
+                <label for="material">Material:</label>
+                <select id="material" name="material">
+                    <option value="fiberglass">Fiberglass</option>
+                    <option value="mineral_wool">Mineral Wool</option>
+                    <option value="polyester">Polyester Acoustic Panel</option>
+                    <option value="foam">Open-Cell Foam</option>
+                </select>
+            </div>
+            <div>
+                <label for="thickness">Thickness (mm):</label>
+                <select id="thickness" name="thickness" required>
+                    <option value="10">10</option>
+                    <option value="25" selected>25</option>
+                    <option value="50">50</option>
+                    <option value="100">100</option>
+                </select>
+            </div>                    
+            <div>
+                <label for="percentage_area">Percentage of Area to Replace (%):</label>
+                <input type="number" id="percentage_area" name="percentage_area" value="5" min="0" max="100" required>
+            </div>
+            <button type="submit">Calculate</button>
+        </form>
+
+        <h2>Results</h2>
+        <canvas id="rt60-chart" width="400" height="200"></canvas>
+    </div>
+
+    <script>
+        const absorptionCoefficients = {
+            fiberglass: {
+                25: [0.10, 0.35, 0.55, 0.65, 0.75, 0.80],
+                50: [0.20, 0.50, 0.70, 0.80, 0.75, 0.80],
+                100: [0.25, 0.60, 0.80, 0.85, 0.80, 0.80]
+            },
+            mineral_wool: {
+                25: [0.30, 0.60, 0.75, 0.85, 0.90, 0.95],
+                50: [0.50, 0.75, 0.85, 0.90, 0.95, 0.95],
+                100: [0.70, 0.85, 0.90, 0.95, 0.95, 0.95]
+            },
+            polyester: {
+                10: [0.05, 0.10, 0.30, 0.50, 0.70, 0.80],
+                25: [0.10, 0.30, 0.60, 0.80, 0.90, 0.95],
+                50: [0.20, 0.50, 0.80, 0.90, 0.95, 0.95]
+            },
+            foam: {
+                25: [0.10, 0.30, 0.60, 0.75, 0.85, 0.90],
+                50: [0.25, 0.55, 0.80, 0.90, 0.95, 0.95],
+                100: [0.45, 0.75, 0.90, 0.95, 0.95, 0.95]
+            }
+        };
+
+        document.getElementById('acoustic-form').addEventListener('submit', function(event) {
+            event.preventDefault();
+
+            const material = document.getElementById('material').value;
+            const thickness = parseInt(document.getElementById('thickness').value);
+            const percentage_area = parseFloat(document.getElementById('percentage_area').value) / 100;
+
+            if (!absorptionCoefficients[material] || !absorptionCoefficients[material][thickness]) {
+                alert("Invalid material or thickness selected.");
+                return;
+            }
+
+            const frequencies = [125, 250, 500, 1000, 2000, 4000];
+            const alpha_selected = absorptionCoefficients[material][thickness];
+
+            const RT60_absorber = [0, 0.875, 1.114, 0.959, 0.955, 0.841];
+            const RT60_baseline_exp = [0.578, 1.054, 1.033, 1.097, 1.093, 0.872];
+
+            const alpha_drywall = [0.29, 0.10, 0.05, 0.04, 0.07, 0.09];
+            const alpha_concrete = [0.36, 0.44, 0.31, 0.29, 0.39, 0.25];
+            const alpha_steel_grid = [0.02, 0.04, 0.05, 0.06, 0.07, 0.08];
+            const alpha_ceiling = alpha_concrete.map((val, i) => (val + alpha_steel_grid[i]) / 2);
+            const alpha_glass = [0.18, 0.06, 0.04, 0.03, 0.02, 0.02];
+
+            const width = 3.10, length = 9.65, height = 3.89;
+            const volume = width * length * height;
+            const floor_ceiling_area = width * length;
+            const front_back_wall_area = width * height;
+            const left_right_wall_area = length * height;
+
+            const Sx = 2 * left_right_wall_area;
+            const Sy = 2 * front_back_wall_area;
+            const Sz = 2 * floor_ceiling_area;
+            const total_surface_area = Sx + Sy + Sz;
+
+            const area_glass = front_back_wall_area;
+            const area_drywall = Sx + Sy;
+            const area_drywall_new = area_drywall - area_glass;
+
+            const effective_alpha_y = alpha_glass.map((ag, i) =>
+                ((area_glass * ag) + (area_drywall_new * alpha_drywall[i])) / (area_glass + area_drywall_new)
+            );
+
+            const A_baseline = frequencies.map((_, i) =>
+                (Sx * alpha_drywall[i]) + (Sy * effective_alpha_y[i]) + (Sz * alpha_ceiling[i])
+            );
+
+            const panel_area = percentage_area * total_surface_area;
+            const A_new = frequencies.map((_, i) =>
+                A_baseline[i] + panel_area * (alpha_selected[i] - alpha_drywall[i])
+            );
+
+            const RT60_sabine_baseline = A_baseline.map(A => 0.161 * volume / A);
+            const RT60_sabine_new = A_new.map(A => 0.161 * volume / A);
+
+            const ctx = document.getElementById('rt60-chart').getContext('2d');
+
+            if (window.rt60Chart) {
+                window.rt60Chart.destroy();
+            }
+
+            window.rt60Chart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: frequencies,
+                    datasets: [
+                        {
+                            label: 'Sabine: Baseline',
+                            data: RT60_sabine_baseline,
+                            borderColor: '#3e95cd',
+                            backgroundColor: 'rgba(62, 149, 205, 0.2)',
+                            fill: false,
+                            tension: 0.3
+                        },
+                        {
+                            label: `Sabine: ${percentage_area * 100}% Panels`,
+                            data: RT60_sabine_new,
+                            borderColor: '#8e5ea2',
+                            backgroundColor: 'rgba(142, 94, 162, 0.2)',
+                            fill: false,
+                            tension: 0.3
+                        },
+                        {
+                            label: 'Experimental: No Panels',
+                            data: RT60_baseline_exp,
+                            borderColor: '#e8c3b9',
+                            borderDash: [5, 5],
+                            fill: false,
+                            tension: 0.3
+                        },
+                        {
+                            label: 'Experimental: With Panels',
+                            data: RT60_absorber,
+                            borderColor: '#3cba9f',
+                            borderDash: [5, 5],
+                            fill: false,
+                            tension: 0.3
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    scales: {
+                        x: {
+                            type: 'logarithmic',
+                            title: { display: true, text: 'Frequency (Hz)' },
+                            ticks: {
+                                callback: val => val
+                            }
+                        },
+                        y: {
+                            title: { display: true, text: 'RT60 (s)' }
+                        }
+                    },
+                    plugins: {
+                        legend: { position: 'bottom' }
+                    }
+                }
+            });
+        });
+    </script>
+</body>
+</html>
