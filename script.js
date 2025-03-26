@@ -88,9 +88,8 @@ form.addEventListener('submit', function (event) {
     });
 
     const alpha_ceiling = frequencies.map((_, i) => (absorptionCoefficients.concrete[i] + absorptionCoefficients.steel[i]) / 2);
-    const Sx = wallAreas.reduce((a, b) => a + b, 0);
-    const Sy = Sx;
-    const totalSurfaceArea = Sx + Sy + Sz;
+    const Swalls = wallAreas.reduce((a, b) => a + b, 0);
+    const totalSurfaceArea = Swalls + Sz;
 
     const alpha_selected_material = document.getElementById('material').value;
     const panel_thickness = parseInt(document.getElementById('thickness').value);
@@ -107,8 +106,9 @@ form.addEventListener('submit', function (event) {
         return weighted;
     });
 
-    const A_baseline = frequencies.map((_, i) => Sx * alpha_wall[i] + Sy * alpha_wall[i] + Sz * alpha_ceiling[i]);
-
+    const A_baseline = frequencies.map((_, i) =>
+        Swalls * alpha_wall[i] + Sz * alpha_ceiling[i]
+    );
     const absorber_area = absorberWallIndices
         .map(i => wallWidths[i] * wallHeights[i])
         .reduce((a, b) => a + b, 0) * (panel_percent / 100);
